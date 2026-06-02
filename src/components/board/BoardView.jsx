@@ -6,6 +6,7 @@ import Spinner from '../ui/Spinner.jsx'
 import Button from '../ui/Button.jsx'
 import GroupSection from './GroupSection.jsx'
 import AddColumnModal from './AddColumnModal.jsx'
+import BoardToolbar from './BoardToolbar.jsx'
 
 const cellKey = (itemId, colId) => `${itemId}|${colId}`
 
@@ -21,7 +22,43 @@ export default function BoardView({ boardId }) {
   const [error, setError] = useState('')
   const [colModal, setColModal] = useState(false)
 
+  // View controls: search / filter / sort
+  const [search, setSearch] = useState('')
+  const [filters, setFilters] = useState({}) // { columnId: value }
+  const [sort, setSort] = useState({ colId: '', dir: 'asc' })
+  const setFilter = (colId, value) => setFilters((p) => ({ ...p, [colId]: value }))
+  const clearView = () => {
+    setSearch('')
+    setFilters({})
+    setSort({ colId: '', dir: 'asc' })
+  }
+
   const canEdit = board ? canEditWorkspace(board.workspace_id) : false
+
+  function applyView(list) {
+    let out = list
+    const q = search.trim().toLowerCase()
+    if (q) out = out.filter((i) => (i.name || '').toLowerCase().includes(q))
+    Object.entries(filters).forEach(([colId, val]) => {
+      if (val) out = out.filter((i) => cells[`${i.id}|${colId}`] === val)
+    })
+    if (sort.colId) {
+      const get =
+        sort.colId === '__name__'
+          ? (i) => i.name || ''
+          : (i) => cells[`${i.id}|${sort.colId}`]
+      out = [...out].sort((a, b) => {
+        const va = get(a) ?? ''
+        const vb = get(b) ?? ''
+        if (typeof va === 'number' && typeof vb === 'number') return va - vb
+        return String(va).localeCompare(String(vb), 'he')
+      })
+      if (sort.dir === 'desc') out.reverse()
+    }
+    return out
+  }
+
+  const visibleCount = applyView(items).length
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -174,6 +211,22 @@ export default function BoardView({ boardId }) {
         </p>
       )}
 
+      {groups.length > 0 && columns.length > 0 && (
+        <BoardToolbar
+          columns={columns}
+          profiles={profiles}
+          search={search}
+          setSearch={setSearch}
+          filters={filters}
+          setFilter={setFilter}
+          sort={sort}
+          setSort={setSort}
+          onClear={clearView}
+          visibleCount={visibleCount}
+          totalCount={items.length}
+        />
+      )}
+
       {groups.length === 0 ? (
         <div className="rounded-md border border-dashed border-gray-300 p-10 text-center text-gray-500">
           אין עדיין קבוצות בבורד.
@@ -189,7 +242,7 @@ export default function BoardView({ boardId }) {
             key={group.id}
             group={group}
             columns={columns}
-            items={items.filter((i) => i.group_id === group.id)}
+            items={applyView(items.filter((i) => i.group_id === group.id))}
             cells={cells}
             profiles={profiles}
             canEdit={canEdit}
