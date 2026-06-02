@@ -11,7 +11,8 @@ import Spinner from './ui/Spinner.jsx'
 export default function Sidebar() {
   const navigate = useNavigate()
   const { boardId } = useParams()
-  const { profile, isOrgAdmin, canEditWorkspace, signOut, refreshMemberships } = useAuth()
+  const { profile, isOrgAdmin, canEditWorkspace, roleInWorkspace, signOut, refreshMemberships } =
+    useAuth()
 
   const [workspaces, setWorkspaces] = useState([])
   const [boards, setBoards] = useState([])
@@ -86,9 +87,40 @@ export default function Sidebar() {
     navigate(`/board/${data.id}`)
   }
 
+  async function deleteBoard(board) {
+    if (!window.confirm(`למחוק את הבורד "${board.name}" וכל התוכן שבו? פעולה בלתי הפיכה.`)) return
+    const { error } = await supabase.from('boards').delete().eq('id', board.id)
+    if (error) {
+      alert('שגיאה במחיקת בורד: ' + error.message)
+      return
+    }
+    if (boardId === board.id) navigate('/')
+    await load()
+  }
+
+  async function deleteWorkspace(ws) {
+    if (
+      !window.confirm(
+        `למחוק את המחלקה "${ws.name}" כולל כל הבורדים והתוכן שבה? פעולה בלתי הפיכה.`
+      )
+    )
+      return
+    const inThisWs = boardsByWs(ws.id).some((b) => b.id === boardId)
+    const { error } = await supabase.from('workspaces').delete().eq('id', ws.id)
+    if (error) {
+      alert('שגיאה במחיקת מחלקה: ' + error.message)
+      return
+    }
+    if (inThisWs) navigate('/')
+    await refreshMemberships()
+    await load()
+  }
+
   function toggle(id) {
     setExpanded((p) => ({ ...p, [id]: !p[id] }))
   }
+
+  const canDeleteWorkspace = (id) => isOrgAdmin || roleInWorkspace(id) === 'admin'
 
   const boardsByWs = (id) => boards.filter((b) => b.workspace_id === id)
 
@@ -113,7 +145,7 @@ export default function Sidebar() {
         ) : (
           workspaces.map((ws) => (
             <div key={ws.id} className="mb-2">
-              <div className="flex items-center justify-between rounded px-2 py-1 hover:bg-white/5">
+              <div className="group/ws flex items-center justify-between rounded px-2 py-1 hover:bg-white/5">
                 <button
                   onClick={() => toggle(ws.id)}
                   className="flex flex-1 items-center gap-2 text-right"
@@ -125,28 +157,54 @@ export default function Sidebar() {
                   />
                   <span className="truncate text-sm font-medium">{ws.name}</span>
                 </button>
-                {canEditWorkspace(ws.id) && (
-                  <button
-                    onClick={() => addBoard(ws.id)}
-                    title="הוסף בורד"
-                    className="px-1 text-white/60 hover:text-white"
-                  >
-                    +
-                  </button>
-                )}
+                <div className="flex items-center">
+                  {canEditWorkspace(ws.id) && (
+                    <button
+                      onClick={() => addBoard(ws.id)}
+                      title="הוסף בורד"
+                      className="px-1 text-white/60 hover:text-white"
+                    >
+                      +
+                    </button>
+                  )}
+                  {canDeleteWorkspace(ws.id) && (
+                    <button
+                      onClick={() => deleteWorkspace(ws)}
+                      title="מחק מחלקה"
+                      className="px-1 text-white/40 opacity-0 hover:text-[#e2445c] group-hover/ws:opacity-100"
+                    >
+                      🗑
+                    </button>
+                  )}
+                </div>
               </div>
               {expanded[ws.id] && (
                 <div className="mr-4 mt-1 flex flex-col">
                   {boardsByWs(ws.id).map((b) => (
-                    <Link
+                    <div
                       key={b.id}
-                      to={`/board/${b.id}`}
-                      className={`truncate rounded px-3 py-1.5 text-sm ${
-                        boardId === b.id ? 'bg-[#0073ea] text-white' : 'text-white/80 hover:bg-white/5'
+                      className={`group/board flex items-center rounded ${
+                        boardId === b.id ? 'bg-[#0073ea]' : 'hover:bg-white/5'
                       }`}
                     >
-                      {b.name}
-                    </Link>
+                      <Link
+                        to={`/board/${b.id}`}
+                        className={`flex-1 truncate px-3 py-1.5 text-sm ${
+                          boardId === b.id ? 'text-white' : 'text-white/80'
+                        }`}
+                      >
+                        {b.name}
+                      </Link>
+                      {canEditWorkspace(ws.id) && (
+                        <button
+                          onClick={() => deleteBoard(b)}
+                          title="מחק בורד"
+                          className="px-2 text-white/40 opacity-0 hover:text-[#e2445c] group-hover/board:opacity-100"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
                   ))}
                   {boardsByWs(ws.id).length === 0 && (
                     <span className="px-3 py-1 text-xs text-white/40">אין בורדים</span>
